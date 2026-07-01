@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
+<title>StockCount — Inventory & Audit</title>
+<meta name="description" content="Offline-first inventory manager with stock movement tracking and physical count reconciliation.">
+
+<!-- PWA / standalone launch -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#141312">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="StockCount">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+
+<!-- Fonts (self-hosted fallback safe: system stack in CSS if offline before cache) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="./styles/tokens.css">
+<link rel="stylesheet" href="./styles/app.css">
+</head>
+<body>
+
+<div id="app">
+  <div id="screen" class="screen"></div>
+
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-tab="dashboard">
+      <span class="nav-icon-pill"></span>
+      <span></span>
+    </button>
+    <button class="nav-item" data-tab="inventory">
+      <span class="nav-icon-pill"></span>
+      <span></span>
+    </button>
+    <button class="nav-item" data-tab="audit">
+      <span class="nav-icon-pill"></span>
+      <span></span>
+    </button>
+    <button class="nav-item" data-tab="history">
+      <span class="nav-icon-pill"></span>
+      <span></span>
+    </button>
+    <button class="nav-item" data-tab="settings">
+      <span class="nav-icon-pill"></span>
+      <span></span>
+    </button>
+  </nav>
+
+  <div id="overlay-root"></div>
+  <div id="toast-wrap" class="toast-wrap"></div>
+</div>
+
+<script src="./js/icons.js"></script>
+<script>
+  // Populate nav icons + labels now that Icon lib is loaded
+  document.addEventListener('DOMContentLoaded', () => {
+    const navConfig = [
+      { tab: 'dashboard', icon: Icon.dashboard, label: 'Home' },
+      { tab: 'inventory', icon: Icon.inventory, label: 'Inventory' },
+      { tab: 'audit', icon: Icon.audit, label: 'Counts' },
+      { tab: 'history', icon: Icon.history, label: 'History' },
+      { tab: 'settings', icon: Icon.settings, label: 'Settings' },
+    ];
+    navConfig.forEach(cfg => {
+      const btn = document.querySelector(`.nav-item[data-tab="${cfg.tab}"]`);
+      btn.querySelector('.nav-icon-pill').innerHTML = cfg.icon;
+      btn.querySelector('span:last-child').textContent = cfg.label;
+      btn.querySelector('span:last-child').className = 'nav-label';
+    });
+  });
+</script>
+<script src="./js/db.js"></script>
+<script src="./js/ui.js"></script>
+<script src="./js/forms.js"></script>
+<script src="./js/screens/dashboard.js"></script>
+<script src="./js/screens/inventory.js"></script>
+<script src="./js/screens/audit.js"></script>
+<script src="./js/screens/history.js"></script>
+<script src="./js/screens/settings.js"></script>
+<script src="./js/app.js"></script>
+
+</body>
+</html>
