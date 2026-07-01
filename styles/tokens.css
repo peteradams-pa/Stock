@@ -1,0 +1,84 @@
+/* ============================================================
+   StockCount — Material Design 3 Token System
+   Dark, warm-neutral base with amber (stock) / mint (audit) accents
+   ============================================================ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- Core palette (warm neutral, not pure black/blue-grey) ---- */
+  --md-bg: #141312;
+  --md-surface: #1c1a19;
+  --md-surface-1: #211f1d;
+  --md-surface-2: #262421;
+  --md-surface-3: #2c2925;
+  --md-surface-4: #322e2a;
+  --md-surface-container-high: #363230;
+  --md-on-surface: #ece7e2;
+  --md-on-surface-variant: #a8a09a;
+  --md-outline: #524d48;
+  --md-outline-variant: #3a3633;
+
+  /* ---- Primary: Amber — represents active stock / movement ---- */
+  --md-primary: #ffb547;
+  --md-on-primary: #452b00;
+  --md-primary-container: #633f00;
+  --md-on-primary-container: #ffddab;
+
+  /* ---- Secondary: Mint — represents audit / reconciliation / confirmed ---- */
+  --md-secondary: #7ad6b2;
+  --md-on-secondary: #00382a;
+  --md-secondary-container: #00513d;
+  --md-on-secondary-container: #96f3cc;
+
+  /* ---- Tertiary: Soft coral — used for outbound / warnings-lite ---- */
+  --md-tertiary: #ff9d80;
+  --md-on-tertiary: #5c1900;
+  --md-tertiary-container: #7c2a0c;
+  --md-on-tertiary-container: #ffdbcf;
+
+  /* ---- Error / variance ---- */
+  --md-error: #ffb4a9;
+  --md-on-error: #680003;
+  --md-error-container: #930006;
+  --md-on-error-container: #ffdad4;
+
+  /* ---- Success (matched count) ---- */
+  --md-success: #7ad6b2;
+
+  /* ---- Elevation shadows ---- */
+  --md-shadow-1: 0 1px 2px rgba(0,0,0,.45), 0 1px 3px 1px rgba(0,0,0,.3);
+  --md-shadow-2: 0 1px 2px rgba(0,0,0,.45), 0 2px 6px 2px rgba(0,0,0,.32);
+  --md-shadow-3: 0 4px 8px 3px rgba(0,0,0,.35), 0 1px 3px rgba(0,0,0,.5);
+
+  /* ---- Shape ---- */
+  --shape-xs: 8px;
+  --shape-sm: 12px;
+  --shape-md: 16px;
+  --shape-lg: 20px;
+  --shape-xl: 28px;
+  --shape-full: 999px;
+
+  /* ---- Type: Display face for numbers/headers, body face for UI ---- */
+  --font-display: 'Fraunces', 'Georgia', serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+
+  /* ---- Motion ---- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.3, 0, 0.1, 1);
+  --dur-short: 120ms;
+  --dur-medium: 220ms;
+  --dur-long: 400ms;
+
+  /* ---- Safe areas for standalone app chrome ---- */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-short: 0ms; --dur-medium: 0ms; --dur-long: 0ms; }
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
