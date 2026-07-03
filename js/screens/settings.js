@@ -6,6 +6,7 @@ window.Screens = window.Screens || {};
 
 Screens.settings = async function (root) {
   const stats = await StockDB.Items.stats();
+  const cats = App.state.categoriesFull;
 
   root.innerHTML = `
     <div class="topbar">
@@ -23,6 +24,17 @@ Screens.settings = async function (root) {
           <div class="text-muted" style="font-size:12.5px;">${stats.skuCount} SKUs · ${stats.totalUnits.toLocaleString()} units · fully offline</div>
         </div>
       </div>
+
+      <div class="section-label">
+        Categories
+        <span class="link" id="btn-add-category">+ Add</span>
+      </div>
+      <div class="card" style="padding:4px 14px;">
+        ${cats.length ? cats.map((c, i) => categoryRow(c, i < cats.length - 1)).join('') : `
+          <p style="margin:14px 4px;font-size:13px;color:var(--md-on-surface-variant);">No categories yet. Add one to start assigning auto-numbered SKUs.</p>
+        `}
+      </div>
+      <p class="field-hint" style="margin:0 0 4px;">Each category's prefix generates sequential SKUs for new items — e.g. <span class="mono">BEV-001</span>, <span class="mono">BEV-002</span> — in the order they're added.</p>
 
       <div class="section-label">Data</div>
       <div class="card" style="padding:4px 14px;">
@@ -63,6 +75,14 @@ Screens.settings = async function (root) {
       </div>
     </div>
   `;
+
+  root.querySelector('#btn-add-category').addEventListener('click', () => Forms.openCategoryEditor());
+  root.querySelectorAll('[data-cat-id]').forEach(el => {
+    el.addEventListener('click', () => {
+      const cat = cats.find(c => c.id === el.dataset.catId);
+      if (cat) Forms.openCategoryEditor(cat);
+    });
+  });
 
   root.querySelector('#btn-export-csv').addEventListener('click', () => {
     const rows = [['SKU','Name','Category','Unit','Qty On Hand','Reorder Point','Location']];
@@ -114,3 +134,16 @@ Screens.settings = async function (root) {
     }
   });
 };
+
+function categoryRow(cat, showDivider) {
+  return `
+    <button class="settings-row" data-cat-id="${cat.id}" style="width:100%;text-align:left;${showDivider ? 'border-bottom:1px solid var(--md-outline-variant);' : ''}">
+      <span class="settings-row-icon mono" style="font-size:11px;font-weight:700;letter-spacing:0.02em;">${Utils.escape(cat.prefix)}</span>
+      <span class="settings-row-body">
+        <span class="settings-row-title">${Utils.escape(cat.name)}</span>
+        <span class="settings-row-sub">${cat.count} item${cat.count === 1 ? '' : 's'} · next SKU ${Utils.escape(cat.prefix)}-${String(cat.nextSeq).padStart(3, '0')}</span>
+      </span>
+      ${Icon.chevronRight}
+    </button>
+  `;
+}

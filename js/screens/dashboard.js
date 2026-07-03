@@ -109,9 +109,8 @@ Screens.dashboard = async function (root) {
   root.querySelector('[data-act="new-audit"]')?.addEventListener('click', () => Forms.openNewAudit());
   root.querySelector('[data-act="new-item"]')?.addEventListener('click', () => Forms.openItemEditor());
   root.querySelector('[data-act="view-low"]')?.addEventListener('click', () => {
-    App.state.tab = 'inventory';
     App.state.lowStockOnly = true;
-    App.render();
+    App.goTab('inventory');
   });
   root.querySelector('[data-act="view-history"]')?.addEventListener('click', () => App.goTab('history'));
 
