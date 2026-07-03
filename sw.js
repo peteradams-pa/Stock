@@ -3,7 +3,7 @@
    Cache-first strategy: app shell fully offline after first load
    ============================================================ */
 
-const CACHE_NAME = 'stockcount-v1';
+const CACHE_NAME = 'stockcount-v2';
 const ASSETS = [
   './',
   './index.html',
