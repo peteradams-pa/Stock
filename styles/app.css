@@ -98,6 +98,13 @@ a { color: inherit; }
   -webkit-overflow-scrolling: touch;
   padding-bottom: calc(96px + var(--sab));
 }
+.screen.screen-enter {
+  animation: screen-fade-in var(--dur-short) var(--ease-standard);
+}
+@keyframes screen-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .screen-pad { padding: 0 20px; }
 
 /* ---- Bottom navigation ---- */
@@ -430,8 +437,9 @@ a { color: inherit; }
   display: flex;
   flex-direction: column;
   transform: translateY(100%);
-  transition: transform var(--dur-long) var(--ease-emphasized);
+  transition: transform var(--dur-medium) var(--ease-emphasized);
   box-shadow: 0 -8px 30px rgba(0,0,0,0.4);
+  will-change: transform;
 }
 .sheet.open { transform: translateY(0); }
 .sheet-handle {
@@ -471,6 +479,7 @@ a { color: inherit; }
   flex-direction: column;
   transform: translateX(100%);
   transition: transform var(--dur-medium) var(--ease-emphasized);
+  will-change: transform;
 }
 .dialog.open { transform: translateX(0); }
 
