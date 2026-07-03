@@ -135,11 +135,21 @@ const Items = {
 
   async create(data) {
     const now = Date.now();
+    const category = (data.category || 'Uncategorized').trim();
+    await Categories.ensure(category);
+
+    // If no SKU was manually entered, reserve the next sequential SKU for
+    // this category (e.g. BEV-001, BEV-002, ...) in strict order of addition.
+    let sku = (data.sku || '').trim();
+    if (!sku) {
+      sku = await Categories.nextSku(category);
+    }
+
     const item = {
       id: uid(),
-      sku: (data.sku || '').trim(),
+      sku,
       name: (data.name || '').trim(),
-      category: data.category || 'Uncategorized',
+      category,
       unit: data.unit || 'pcs',
       qty: Number(data.qty) || 0,
       reorderPoint: Number(data.reorderPoint) || 0,
@@ -442,17 +452,163 @@ const Audits = {
    ============================================================ */
 
 const Categories = {
+  /** Managed category names, alphabetical. This is the source of truth for
+   *  the dropdown in the item form — separate from whatever categories
+   *  happen to be present on existing items. */
   async list() {
     const cats = await getAll('categories');
-    return cats.map(c => c.name).sort();
+    return cats.map(c => c.name).sort((a, b) => a.localeCompare(b));
   },
-  async ensure(name) {
-    if (!name) return;
+
+  async listWithCounts() {
+    const [cats, items] = await Promise.all([getAll('categories'), getAll('items')]);
+    const counts = {};
+    for (const i of items) counts[i.category] = (counts[i.category] || 0) + 1;
+    return cats
+      .map(c => ({ id: c.id, name: c.name, prefix: c.prefix || '', nextSeq: c.nextSeq || 1, count: counts[c.name] || 0 }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  async get(id) {
+    return getById('categories', id);
+  },
+
+  async getByName(name) {
+    const cats = await getAll('categories');
+    return cats.find(c => c.name.toLowerCase() === (name || '').toLowerCase()) || null;
+  },
+
+  /** Normalize a user-typed prefix: letters/digits only, uppercased, max 6 chars. */
+  normalizePrefix(raw) {
+    return (raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  },
+
+  /** Derive a sensible default prefix from a category name, e.g. "Beverages" -> "BEV". */
+  suggestPrefix(name) {
+    const clean = (name || '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').trim();
+    if (!clean) return '';
+    const words = clean.split(/\s+/);
+    if (words.length === 1) return words[0].slice(0, 3);
+    return words.map(w => w[0]).join('').slice(0, 4);
+  },
+
+  /** Add a category if it doesn't already exist (case-insensitive). Returns the row. */
+  async ensure(name, prefix = null) {
+    name = (name || '').trim();
+    if (!name) return null;
     const t = await tx(['categories'], 'readwrite');
     const existing = await reqToPromise(t.objectStore('categories').getAll());
-    if (!existing.find(c => c.name.toLowerCase() === name.toLowerCase())) {
-      await put('categories', { id: uid(), name });
+    const found = existing.find(c => c.name.toLowerCase() === name.toLowerCase());
+    if (found) return found;
+    const row = {
+      id: uid(),
+      name,
+      prefix: this.normalizePrefix(prefix || this.suggestPrefix(name)) || 'GEN',
+      nextSeq: 1,
+    };
+    await put('categories', row);
+    return row;
+  },
+
+  async create(name, prefix) {
+    name = (name || '').trim();
+    if (!name) throw new Error('Category name is required');
+    const existingNames = await this.list();
+    if (existingNames.find(c => c.toLowerCase() === name.toLowerCase())) {
+      throw new Error('That category already exists');
     }
+    const cleanPrefix = this.normalizePrefix(prefix) || this.normalizePrefix(this.suggestPrefix(name)) || 'GEN';
+    const dupePrefix = await this._prefixInUse(cleanPrefix);
+    if (dupePrefix) throw new Error(`Prefix "${cleanPrefix}" is already used by "${dupePrefix.name}"`);
+    return put('categories', { id: uid(), name, prefix: cleanPrefix, nextSeq: 1 });
+  },
+
+  /** Rename a category and/or change its prefix; cascades the new name onto items using it. */
+  async update(id, { name, prefix }) {
+    const row = await getById('categories', id);
+    if (!row) throw new Error('Category not found');
+
+    const newName = (name ?? row.name).trim();
+    if (!newName) throw new Error('Category name is required');
+    const dupeName = (await this.list()).find(c => c.toLowerCase() === newName.toLowerCase() && c.toLowerCase() !== row.name.toLowerCase());
+    if (dupeName) throw new Error('That category already exists');
+
+    let newPrefix = row.prefix;
+    if (prefix != null) {
+      newPrefix = this.normalizePrefix(prefix) || row.prefix;
+      const dupePrefix = await this._prefixInUse(newPrefix, id);
+      if (dupePrefix) throw new Error(`Prefix "${newPrefix}" is already used by "${dupePrefix.name}"`);
+    }
+
+    const oldName = row.name;
+    await put('categories', { ...row, name: newName, prefix: newPrefix });
+
+    if (oldName !== newName) {
+      const items = await getAll('items');
+      for (const item of items) {
+        if (item.category === oldName) {
+          await put('items', { ...item, category: newName, updatedAt: Date.now() });
+        }
+      }
+    }
+    return { ...row, name: newName, prefix: newPrefix };
+  },
+
+  async _prefixInUse(prefix, excludeId = null) {
+    const cats = await getAll('categories');
+    return cats.find(c => c.id !== excludeId && (c.prefix || '').toUpperCase() === prefix.toUpperCase()) || null;
+  },
+
+  /**
+   * Remove a category. Items currently assigned to it fall back to
+   * "Uncategorized" rather than being left pointing at a deleted category.
+   */
+  async remove(id) {
+    const row = await getById('categories', id);
+    if (!row) return;
+    await del('categories', id);
+    const items = await getAll('items');
+    for (const item of items) {
+      if (item.category === row.name) {
+        await put('items', { ...item, category: 'Uncategorized', updatedAt: Date.now() });
+      }
+    }
+    await this.ensure('Uncategorized', 'GEN');
+  },
+
+  /**
+   * Atomically reserve the next SKU for a category, e.g. "BEV-001", then
+   * "BEV-002", strictly in order of addition. Runs inside a single
+   * readwrite transaction so two rapid item creations can never collide
+   * on the same sequence number.
+   */
+  async nextSku(categoryName) {
+    const t = await tx(['categories'], 'readwrite');
+    const store = t.objectStore('categories');
+    const all = await reqToPromise(store.getAll());
+    let row = all.find(c => c.name.toLowerCase() === (categoryName || '').toLowerCase());
+
+    if (!row) {
+      // category doesn't exist yet (shouldn't normally happen from the UI,
+      // but keep item creation robust) — create it on the fly
+      row = { id: uid(), name: categoryName || 'Uncategorized', prefix: this.normalizePrefix(this.suggestPrefix(categoryName)) || 'GEN', nextSeq: 1 };
+    }
+
+    const seq = row.nextSeq || 1;
+    const updated = { ...row, nextSeq: seq + 1 };
+    await reqToPromise(store.put(updated));
+
+    const sku = `${row.prefix}-${String(seq).padStart(3, '0')}`;
+    return sku;
+  },
+
+  /** Preview what the next SKU would be, without reserving it (for UI display). */
+  async peekNextSku(categoryName) {
+    const cats = await getAll('categories');
+    const row = cats.find(c => c.name.toLowerCase() === (categoryName || '').toLowerCase());
+    if (!row) return null;
+    const seq = row.nextSeq || 1;
+    return `${row.prefix}-${String(seq).padStart(3, '0')}`;
   },
 };
 
@@ -508,8 +664,13 @@ async function seedDemoData() {
   const existing = await getAll('items');
   if (existing.length > 0) return false;
 
-  const cats = ['Beverages', 'Snacks', 'Stationery', 'Cleaning'];
-  for (const c of cats) await Categories.ensure(c);
+  const cats = [
+    { name: 'Beverages', prefix: 'BEV' },
+    { name: 'Snacks', prefix: 'SNK' },
+    { name: 'Stationery', prefix: 'STA' },
+    { name: 'Cleaning', prefix: 'CLN' },
+  ];
+  for (const c of cats) await Categories.ensure(c.name, c.prefix);
 
   const demo = [
     { sku: 'BEV-001', name: 'Bottled Water 500ml', category: 'Beverages', unit: 'pcs', qty: 240, reorderPoint: 50, location: 'Aisle A1' },
@@ -520,6 +681,26 @@ async function seedDemoData() {
     { sku: 'CLN-005', name: 'Multi-Surface Cleaner 1L', category: 'Cleaning', unit: 'bottle', qty: 40, reorderPoint: 15, location: 'Aisle C1' },
   ];
   for (const d of demo) await Items.create(d);
+
+  // Demo items used hand-picked SKU numbers (e.g. STA-010, STA-011) rather
+  // than starting from 001, so advance each category's counter past the
+  // highest number actually used — otherwise the next auto-generated SKU
+  // for that category would collide with an existing one.
+  const allCats = await getAll('categories');
+  const allItems = await getAll('items');
+  for (const cat of allCats) {
+    const prefix = cat.prefix;
+    if (!prefix) continue;
+    let maxSeq = 0;
+    for (const item of allItems) {
+      const m = new RegExp(`^${prefix}-(\\d+)$`).exec(item.sku);
+      if (m) maxSeq = Math.max(maxSeq, parseInt(m[1], 10));
+    }
+    if (maxSeq + 1 > (cat.nextSeq || 1)) {
+      await put('categories', { ...cat, nextSeq: maxSeq + 1 });
+    }
+  }
+
   return true;
 }
 

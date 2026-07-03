@@ -9,32 +9,52 @@ const Forms = {
      --------------------------------------------------------- */
   openItemEditor(existingItem = null) {
     const isEdit = !!existingItem;
-    const cats = App.state.categories;
+    const cats = App.state.categoriesFull.length ? App.state.categoriesFull : [];
+    const defaultCat = existingItem?.category || cats[0]?.name || '';
+
     const html = `
       <div class="sheet-header">
         <h3 class="sheet-title">${isEdit ? 'Edit item' : 'New item'}</h3>
         <button class="icon-btn" data-act="close">${Icon.close}</button>
       </div>
       <div class="sheet-body">
+        <div class="field">
+          <label class="field-label">Item name</label>
+          <input class="field-input" id="f-name" placeholder="e.g. Bottled Water 500ml" value="${Utils.escape(existingItem?.name || '')}">
+        </div>
+
+        <div class="field">
+          <label class="field-label">Category</label>
+          ${cats.length ? `
+            <div class="select-wrap">
+              <select class="field-select" id="f-category">
+                ${cats.map(c => `<option value="${Utils.escape(c.name)}" ${c.name === defaultCat ? 'selected' : ''}>${Utils.escape(c.name)} (${Utils.escape(c.prefix)})</option>`).join('')}
+              </select>
+            </div>
+            <p class="field-hint">Manage categories and prefixes in Settings → Categories</p>
+          ` : `
+            <div class="card" style="padding:12px 14px;background:var(--md-surface-3);border:1px dashed var(--md-outline);">
+              <p style="margin:0;font-size:12.5px;color:var(--md-on-surface-variant);line-height:1.5;">No categories yet. Add one in Settings → Categories first, so items get an auto-numbered SKU.</p>
+            </div>
+            <input type="hidden" id="f-category" value="Uncategorized">
+          `}
+        </div>
+
         <div class="field-row">
           <div class="field">
             <label class="field-label">SKU / Code</label>
-            <input class="field-input" id="f-sku" placeholder="e.g. BEV-001" value="${Utils.escape(existingItem?.sku || '')}">
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input class="field-input" id="f-sku" placeholder="Auto-generated" value="${Utils.escape(existingItem?.sku || '')}" ${isEdit ? '' : 'readonly'} style="${isEdit ? '' : 'color:var(--md-on-surface-variant);'}">
+              ${isEdit ? '' : `<button type="button" class="btn-text btn-sm" id="f-sku-manual" style="flex-shrink:0;padding:0 8px;height:36px;">Edit</button>`}
+            </div>
+            <p class="field-hint" id="sku-hint">${isEdit ? '' : 'Next in sequence for this category'}</p>
           </div>
           <div class="field">
             <label class="field-label">Unit</label>
             <input class="field-input" id="f-unit" placeholder="pcs, kg, box…" value="${Utils.escape(existingItem?.unit || 'pcs')}">
           </div>
         </div>
-        <div class="field">
-          <label class="field-label">Item name</label>
-          <input class="field-input" id="f-name" placeholder="e.g. Bottled Water 500ml" value="${Utils.escape(existingItem?.name || '')}">
-        </div>
-        <div class="field">
-          <label class="field-label">Category</label>
-          <input class="field-input" id="f-category" list="cat-list" placeholder="e.g. Beverages" value="${Utils.escape(existingItem?.category || '')}">
-          <datalist id="cat-list">${cats.map(c => `<option value="${Utils.escape(c)}">`).join('')}</datalist>
-        </div>
+
         <div class="field-row">
           <div class="field">
             <label class="field-label">${isEdit ? 'Current quantity' : 'Opening quantity'}</label>
@@ -65,17 +85,53 @@ const Forms = {
     sheet.querySelector('[data-act="cancel"]').addEventListener('click', close);
     sheet.querySelector('#f-name').focus();
 
+    const skuInput = sheet.querySelector('#f-sku');
+    const skuHint = sheet.querySelector('#sku-hint');
+    const categorySelect = sheet.querySelector('#f-category');
+    let skuManuallyEdited = isEdit; // editing an existing item never auto-overwrites its SKU
+
+    const refreshSkuPreview = async () => {
+      if (skuManuallyEdited) return;
+      const catName = categorySelect.value;
+      const preview = await StockDB.Categories.peekNextSku(catName);
+      if (preview) {
+        skuInput.value = preview;
+        skuHint.textContent = 'Next in sequence for this category';
+      } else {
+        skuInput.value = '';
+        skuHint.textContent = 'Will be generated on save';
+      }
+    };
+
+    if (!isEdit) {
+      refreshSkuPreview();
+      categorySelect?.addEventListener('change', refreshSkuPreview);
+      const manualBtn = sheet.querySelector('#f-sku-manual');
+      manualBtn?.addEventListener('click', () => {
+        skuManuallyEdited = true;
+        skuInput.readOnly = false;
+        skuInput.style.color = '';
+        skuInput.value = '';
+        skuInput.placeholder = 'Enter custom code';
+        skuHint.textContent = 'Custom SKU — must be unique';
+        manualBtn.remove();
+        skuInput.focus();
+      });
+    }
+
     sheet.querySelector('[data-act="save"]').addEventListener('click', async () => {
       const name = sheet.querySelector('#f-name').value.trim();
-      const sku = sheet.querySelector('#f-sku').value.trim();
       if (!name) { App.toast('Item name is required', { type: 'error' }); return; }
-      if (!sku) { App.toast('SKU / code is required', { type: 'error' }); return; }
+
+      const category = categorySelect.value.trim() || 'Uncategorized';
+      const manualSku = skuManuallyEdited ? skuInput.value.trim() : '';
+      if (skuManuallyEdited && !manualSku) { App.toast('Enter a SKU or switch back to auto-numbering', { type: 'error' }); return; }
 
       const data = {
         name,
-        sku,
+        sku: manualSku, // empty string = let Items.create() auto-generate from category prefix
         unit: sheet.querySelector('#f-unit').value.trim() || 'pcs',
-        category: sheet.querySelector('#f-category').value.trim() || 'Uncategorized',
+        category,
         qty: Number(sheet.querySelector('#f-qty').value) || 0,
         reorderPoint: Number(sheet.querySelector('#f-reorder').value) || 0,
         location: sheet.querySelector('#f-location').value.trim(),
@@ -84,15 +140,20 @@ const Forms = {
 
       try {
         if (isEdit) {
-          const { qty, ...patch } = data; // qty not editable here
-          await StockDB.Items.update(existingItem.id, patch);
-          await StockDB.Categories.ensure(patch.category);
+          const { qty, sku, ...patch } = data; // qty and sku not editable via this path when auto; sku only if changed
+          const finalPatch = manualSku && manualSku !== existingItem.sku ? { ...patch, sku: manualSku } : patch;
+          if (finalPatch.sku) {
+            const dupe = await StockDB.Items.getBySku(finalPatch.sku);
+            if (dupe && dupe.id !== existingItem.id) { App.toast('A SKU with that code already exists', { type: 'error' }); return; }
+          }
+          await StockDB.Items.update(existingItem.id, finalPatch);
           App.toast('Item updated', { type: 'success' });
         } else {
-          const dupe = await StockDB.Items.getBySku(data.sku);
-          if (dupe) { App.toast('A SKU with that code already exists', { type: 'error' }); return; }
+          if (manualSku) {
+            const dupe = await StockDB.Items.getBySku(manualSku);
+            if (dupe) { App.toast('A SKU with that code already exists', { type: 'error' }); return; }
+          }
           await StockDB.Items.create(data);
-          await StockDB.Categories.ensure(data.category);
           App.toast('Item added', { type: 'success' });
         }
         close();
@@ -388,6 +449,7 @@ const Forms = {
       const audit = await StockDB.Audits.create({ name, itemIds, scope, category });
       App.toast('Count session started', { type: 'success' });
       close();
+      App.markDirty();
       await App.refreshData();
       Screens.openAuditSession(audit.id);
     });
@@ -435,6 +497,113 @@ const Forms = {
       Utils.downloadJSON(data, `stockcount-backup-${Date.now()}.json`);
       App.toast('Backup exported', { type: 'success' });
       close();
+    });
+  },
+
+  /* ---------------------------------------------------------
+     Category create / edit — name + SKU prefix
+     --------------------------------------------------------- */
+  openCategoryEditor(existingCat = null) {
+    const isEdit = !!existingCat;
+    const html = `
+      <div class="sheet-header">
+        <h3 class="sheet-title">${isEdit ? 'Edit category' : 'New category'}</h3>
+        <button class="icon-btn" data-act="close">${Icon.close}</button>
+      </div>
+      <div class="sheet-body">
+        <div class="field">
+          <label class="field-label">Category name</label>
+          <input class="field-input" id="f-cat-name" placeholder="e.g. Beverages" value="${Utils.escape(existingCat?.name || '')}">
+        </div>
+        <div class="field">
+          <label class="field-label">SKU prefix</label>
+          <input class="field-input mono" id="f-cat-prefix" placeholder="e.g. BEV" maxlength="6" value="${Utils.escape(existingCat?.prefix || '')}" style="text-transform:uppercase;letter-spacing:0.03em;">
+          <p class="field-hint" id="cat-prefix-hint">Letters and numbers only, up to 6 characters</p>
+        </div>
+        <div class="card" style="background:var(--md-surface-3);padding:12px 14px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="color:var(--md-secondary);flex-shrink:0;">${Icon.sparkle}</span>
+            <div style="font-size:12.5px;color:var(--md-on-surface-variant);line-height:1.5;">
+              New items in this category get sequential SKUs automatically:
+              <span class="mono" id="cat-sku-preview" style="color:var(--md-on-surface);font-weight:600;">—</span>
+            </div>
+          </div>
+        </div>
+        ${isEdit ? `
+          <p class="field-hint" style="margin-top:14px;">${existingCat.count} item${existingCat.count === 1 ? '' : 's'} currently in this category. Renaming updates them automatically; changing the prefix only affects items created from now on.</p>
+        ` : ''}
+      </div>
+      <div class="sheet-footer">
+        ${isEdit ? `<button class="btn btn-error" id="btn-delete-cat" style="flex-shrink:0;padding:0 18px;">${Icon.trash}</button>` : `<button class="btn btn-outlined btn-block" data-act="cancel">Cancel</button>`}
+        <button class="btn btn-filled btn-block" data-act="save">${isEdit ? 'Save changes' : 'Add category'}</button>
+      </div>
+    `;
+    const { sheet, close } = UI.openSheet(html);
+    sheet.querySelector('[data-act="close"]').addEventListener('click', close);
+    sheet.querySelector('[data-act="cancel"]')?.addEventListener('click', close);
+
+    const nameInput = sheet.querySelector('#f-cat-name');
+    const prefixInput = sheet.querySelector('#f-cat-prefix');
+    const preview = sheet.querySelector('#cat-sku-preview');
+    nameInput.focus();
+
+    let prefixManuallyEdited = isEdit;
+
+    const updatePreview = () => {
+      const prefix = StockDB.Categories.normalizePrefix(prefixInput.value) || StockDB.Categories.normalizePrefix(StockDB.Categories.suggestPrefix(nameInput.value)) || 'GEN';
+      const seq = isEdit ? (existingCat.nextSeq || 1) : 1;
+      preview.textContent = `${prefix}-${String(seq).padStart(3, '0')}`;
+    };
+
+    nameInput.addEventListener('input', () => {
+      if (!prefixManuallyEdited) {
+        prefixInput.value = StockDB.Categories.suggestPrefix(nameInput.value);
+      }
+      updatePreview();
+    });
+    prefixInput.addEventListener('input', () => {
+      prefixManuallyEdited = true;
+      const cleaned = StockDB.Categories.normalizePrefix(prefixInput.value);
+      if (cleaned !== prefixInput.value) prefixInput.value = cleaned;
+      updatePreview();
+    });
+    updatePreview();
+
+    sheet.querySelector('#btn-delete-cat')?.addEventListener('click', async () => {
+      const ok = await UI.confirm({
+        title: 'Delete this category?',
+        message: existingCat.count > 0
+          ? `${existingCat.count} item${existingCat.count === 1 ? '' : 's'} using "${existingCat.name}" will be moved to "Uncategorized". This can't be undone.`
+          : `"${existingCat.name}" will be removed. This can't be undone.`,
+        confirmLabel: 'Delete', danger: true,
+      });
+      if (ok) {
+        await StockDB.Categories.remove(existingCat.id);
+        App.toast('Category deleted', { type: 'success' });
+        close();
+        await App.rerender();
+      }
+    });
+
+    sheet.querySelector('[data-act="save"]').addEventListener('click', async () => {
+      const name = nameInput.value.trim();
+      if (!name) { App.toast('Category name is required', { type: 'error' }); return; }
+      const prefix = StockDB.Categories.normalizePrefix(prefixInput.value);
+      if (!prefix) { App.toast('Enter a SKU prefix', { type: 'error' }); return; }
+
+      try {
+        if (isEdit) {
+          await StockDB.Categories.update(existingCat.id, { name, prefix });
+          App.toast('Category updated', { type: 'success' });
+        } else {
+          await StockDB.Categories.create(name, prefix);
+          App.toast('Category added', { type: 'success' });
+        }
+        close();
+        await App.rerender();
+      } catch (err) {
+        App.toast(err.message || 'Something went wrong', { type: 'error' });
+      }
     });
   },
 };

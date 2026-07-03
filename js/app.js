@@ -8,13 +8,20 @@ const App = {
     items: [],
     movements: [],
     audits: [],
-    categories: [],
+    categories: [],        // plain name list, alphabetical (back-compat)
+    categoriesFull: [],     // [{id, name, prefix, nextSeq, count}]
     searchQuery: '',
     categoryFilter: 'all',
     activeAudit: null,     // audit currently in progress being worked on
   },
 
   els: {},
+
+  // ---- render/nav guards to prevent double-tap stacking & redundant work ----
+  _dataLoaded: false,
+  _dataDirty: true,      // true = state.items/movements/audits are stale, need reload
+  _rendering: false,
+  _navLocked: false,
 
   async init() {
     this.els.root = document.getElementById('app');
@@ -27,7 +34,7 @@ const App = {
 
     await this.refreshData();
     this.bindNav();
-    this.render();
+    await this.render();
 
     // register service worker for offline + standalone
     if ('serviceWorker' in navigator) {
@@ -35,25 +42,37 @@ const App = {
     }
   },
 
-  async refreshData() {
-    const [items, movements, audits, categories] = await Promise.all([
+  /**
+   * Reload all collections from IndexedDB. Only actually hits the DB when
+   * data has been marked dirty (via markDirty()) — repeated taps on the
+   * same tab, or opening/closing read-only views, don't re-query.
+   */
+  async refreshData(force = false) {
+    if (this._dataLoaded && !this._dataDirty && !force) return;
+    const [items, movements, audits, categories, categoriesFull] = await Promise.all([
       StockDB.Items.list(),
       StockDB.Movements.list(),
       StockDB.Audits.list(),
       StockDB.Items.categories(),
+      StockDB.Categories.listWithCounts(),
     ]);
     this.state.items = items;
     this.state.movements = movements;
     this.state.audits = audits;
     this.state.categories = categories;
+    this.state.categoriesFull = categoriesFull;
+    this._dataLoaded = true;
+    this._dataDirty = false;
+  },
+
+  /** Call after any write (create/update/delete) so the next render refetches. */
+  markDirty() {
+    this._dataDirty = true;
   },
 
   bindNav() {
     this.els.navItems.forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.state.tab = btn.dataset.tab;
-        this.render();
-      });
+      btn.addEventListener('click', () => this.goTab(btn.dataset.tab));
     });
   },
 
@@ -63,29 +82,67 @@ const App = {
     });
   },
 
+  /**
+   * Render the current tab. Guarded against re-entrant calls so rapid
+   * taps (nav, back button, etc.) can't pile up overlapping renders —
+   * the most common source of perceived "lag" on quick navigation.
+   */
   async render() {
-    this.updateNav();
-    const screen = this.els.screen;
-    screen.scrollTop = 0;
+    if (this._rendering) return;
+    this._rendering = true;
+    try {
+      this.updateNav();
+      const screen = this.els.screen;
 
-    switch (this.state.tab) {
-      case 'dashboard': return Screens.dashboard(screen);
-      case 'inventory': return Screens.inventory(screen);
-      case 'audit': return Screens.audit(screen);
-      case 'history': return Screens.history(screen);
-      case 'settings': return Screens.settings(screen);
-      default: return Screens.dashboard(screen);
+      const renderFn = {
+        dashboard: Screens.dashboard,
+        inventory: Screens.inventory,
+        audit: Screens.audit,
+        history: Screens.history,
+        settings: Screens.settings,
+      }[this.state.tab] || Screens.dashboard;
+
+      await renderFn(screen);
+      screen.scrollTop = 0;
+      // retrigger the fade-in animation (innerHTML swaps don't restart CSS
+      // animations on their own — force a reflow so the transition replays)
+      screen.classList.remove('screen-enter');
+      void screen.offsetWidth;
+      screen.classList.add('screen-enter');
+    } finally {
+      this._rendering = false;
     }
   },
 
+  /**
+   * Re-fetch data and render. Always used right after a mutation (create/
+   * update/delete/movement/audit change), so this always forces a fresh
+   * read — refreshData() itself still skips the DB round-trip anywhere
+   * else in the app when nothing changed (e.g. plain tab switches).
+   */
   async rerender() {
+    this.markDirty();
     await this.refreshData();
     await this.render();
   },
 
+  /**
+   * Switch tabs. Ignores taps on the currently active tab (no-op re-render)
+   * and short-circuits rapid double-taps while a nav transition is in flight.
+   */
   goTab(tab) {
+    if (this._navLocked) return;
+    if (tab === this.state.tab) return;
+
+    this._navLocked = true;
     this.state.tab = tab;
-    this.render();
+    // Data may have changed while the user was on another tab (e.g. logged
+    // a movement then switched) — refreshData() below is a no-op unless dirty.
+    this.render().finally(() => {
+      // small unlock delay purely to swallow accidental double-taps,
+      // not tied to any animation so it never feels sluggish
+      setTimeout(() => { this._navLocked = false; }, 80);
+    });
   },
 
   toast(message, opts = {}) {
@@ -99,7 +156,7 @@ const App = {
     requestAnimationFrame(() => el.classList.add('show'));
     setTimeout(() => {
       el.classList.remove('show');
-      setTimeout(() => el.remove(), 260);
+      setTimeout(() => el.remove(), 200);
     }, 2400);
   },
 };
